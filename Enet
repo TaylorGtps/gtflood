@@ -1,60 +1,51 @@
-Server_info("Succesfully loaded");
-srand(time(NULL));
-Server_db_logs("Loading saved guild data");
+void save_all() {
+    // WAJIB: hentikan lebih awal kalau ENet host belum ada
+    if (server == nullptr) {
+        std::cout << "[SAFE EXIT] server masih nullptr, save_all() dibatalkan agar tidak crash.\n";
+        return;
+    }
 
-// 1. Cek folder dulu sebelum iterator
-if (!fs::exists("database/guilds")) {
-    Server_db_logs("[FATAL] Folder database/guilds tidak ditemukan! Server dihentikan aman.");
-    return 0;
-}
+    // Optional: jika peers array sendiri bermasalah
+    if (server->peers == nullptr || server->peerCount == 0) {
+        std::cout << "[SAFE EXIT] peers kosong, skip save player.\n";
+    } else {
+        for (ENetPeer* currentPeer = server->peers;
+             currentPeer < &server->peers[server->peerCount];
+             ++currentPeer) {
 
-// 2. Bungkus iterator dengan try/catch biar tidak crash
-try {
-    for (const auto& entry : fs::directory_iterator("database/guilds")) {
-        if (!fs::is_directory(entry.path())) { // file guild
-            std::string guild_id = explode(".", entry.path().filename().string())[0];
+            if (currentPeer == nullptr) continue;
+            if (currentPeer->state != ENET_PEER_STATE_CONNECTED || currentPeer->data == nullptr) continue;
 
-            json guild_read;
-            std::ifstream read_guild(entry.path(), std::ifstream::binary);
-            read_guild >> guild_read;
-            read_guild.close();
-
-            Guild new_guild{};
-            new_guild.guild_id = atoi(guild_id.c_str());
-            new_guild.guild_name = guild_read["guild_name"].get<std::string>();
-            new_guild.guild_description = guild_read["guild_description"].get<std::string>();
-            new_guild.guild_mascot = guild_read["guild_mascot"].get<std::vector<uint16_t>>();
-            new_guild.guild_level = guild_read["guild_level"].get<uint16_t>();
-            new_guild.guild_xp = guild_read["guild_xp"].get<uint32_t>();
-            new_guild.coleader_access = guild_read["coleader_access"].get<bool>();
-            new_guild.coleader_elder_access = guild_read["coleader_elder_access"].get<bool>();
-            new_guild.all_access = guild_read["all_access"].get<bool>();
-            new_guild.guild_world = guild_read["guild_world"].get<std::string>();
-
-            json a_ = guild_read["guild_members"];
-            for (size_t i = 0; i < a_.size(); i++) {
-                GuildMember new_member{};
-                new_member.member_name = a_[i]["member_name"].get<std::string>();
-                new_member.role_id = a_[i]["role_id"].get<int>();
-                new_member.public_location = a_[i]["public_location"].get<bool>();
-                new_member.show_notifications = a_[i]["show_notifications"].get<bool>();
-                new_member.last_online = a_[i]["last_online"].get<long long>();
-                new_guild.guild_members.push_back(new_member);
+            try {
+                save_player(pInfo(currentPeer), false);
+            } catch (...) {
+                std::cout << "[ERROR TERCEGAH] Crash saat save_player() diabaikan.\n";
             }
-
-            json b_ = guild_read["guild_logs"];
-            for (size_t i = 0; i < b_.size(); i++) {
-                GuildLog new_log{};
-                new_log.info = b_[i]["info"].get<std::string>();
-                new_log.display_id = b_[i]["display_id"].get<uint16_t>();
-                new_log.date = b_[i]["date"].get<long long>();
-                new_guild.guild_logs.push_back(new_log);
-            }
-
-            guilds.push_back(new_guild);
         }
     }
-} catch (const std::filesystem::filesystem_error& e) {
-    Server_db_logs(std::string("[CRASH TERCEGAH] Filesystem error: ") + e.what());
-    return 0;
+
+    // Save world tetap di isolate biar 1 world corrupt tidak crash
+    for (size_t i = 0; i < worlds.size(); i++) {
+        try {
+            save_world(worlds[i].name, false);
+        } catch (...) {
+            std::cout << "[ERROR TERCEGAH] Crash saat save_world() diabaikan di index " << i << "\n";
+        }
+    }
+
+    try {
+        save_guilds();
+        save_guilds();
+    } catch (...) {
+        std::cout << "[ERROR TERCEGAH] Crash di save_guilds() diabaikan.\n";
+    }
+
+    try {
+        save_guilds();
+    } catch (...) {
+        std::cout << "[ERROR TERCEGAH] Crash di save_guilds() diabaikan.\n";
+    }
+
+    std::cout << "[DONE] save_all() selesai tanpa crash.\n";
+    Sleep(1000);
 }
